@@ -1,0 +1,145 @@
+/****************************************************/
+/*******Stata code by C.Nichols, Nov 12, 2018*********/
+/***prepping data for use in ICPI TB/HIV Dashboard***/
+/***********using data from Genie for FY18Q4*********/
+/****************************************************/
+
+/*clearing data and increasing memory storage capacity*/
+clear
+set maxvar 30000
+
+/*setting up directory*/
+global dir="C:\Users\GHFP\Desktop\TB data\Data from Genie"
+import delimited "C:\Users\GHFP\Desktop\TB data\Data from Genie\DHIS2_cabbf167a0b04c7986bd8182263553a8.txt"
+
+/*disabling more to see all the output*/
+set more off
+
+/*dropping time periods that are not needed*/
+drop fy2017q1 fy2017q2 fy2017q3 fy2017q4 fy2017apr fy2017_targets fy2018q1 fy2018q3 fy2019_targets ///
+	region regionuid operatingunituid countryname modality
+
+/*dropping additional variables from the Genie*/
+drop approvallevel approvalleveldescription categoryoptioncombouid dataelementuid
+
+/*keeping data for 23 countries only*/
+keep if operatingunit=="Botswana" | operatingunit=="Burundi" | operatingunit=="Cameroon" | operatingunit=="Cote d'Ivoire" | ///
+	operatingunit=="Democratic Republic of the Congo" | operatingunit=="Ethiopia" | operatingunit=="Haiti" | ///
+	operatingunit=="Kenya" | operatingunit=="Lesotho" | operatingunit=="Malawi" | operatingunit=="Mozambique" | ///
+	operatingunit=="Namibia" | operatingunit=="Nigeria" | operatingunit=="Rwanda"| operatingunit=="South Africa" | ///
+	operatingunit=="South Sudan" | operatingunit=="Eswatini" | operatingunit=="Tanzania" | operatingunit=="Ukraine" | ///
+	operatingunit=="Uganda" | operatingunit=="Zambia" | operatingunit=="Zimbabwe" | operatingunit=="Vietnam"
+
+/*keeping relevant indicators only*/
+keep if indicator=="TB_STAT" | indicator=="TB_STAT_POS" | indicator=="TB_ART" | indicator=="TX_TB" | indicator=="TB_PREV" | ///
+	indicator=="TX_CURR" | indicator=="TX_NEW"
+	
+/*dropping rows with zero data*/
+replace fy2018q2 =. if fy2018q2==0 
+replace fy2018_targets =. if fy2018_targets==0
+replace fy2018apr =. if fy2018apr==0
+replace fy2018q4 =. if fy2018q4==0
+gen blank1=. 
+replace blank1=1 if fy2018q2==. 
+gen blank2=.
+replace blank2=1 if fy2018_targets==. 
+gen blank3=.
+replace blank3=1 if fy2018q4==.
+gen blank4=.
+replace blank4=1 if fy2018apr==.
+gen blank=.
+replace blank=1 if blank1==1 & blank2==1 & blank3==1 & blank4==1
+drop if blank==1
+drop blank1 blank2 blank3 blank blank4
+
+/*creating unique variable for converting from long to semi-wide*/
+gen id = _n
+
+/*renaming variables to shorten the names*/
+rename fy2018_targets fy18T_
+rename fy2018q2 fy18q2
+rename fy2018q4 fy18q4
+rename fy2018apr fy18apr
+
+/*cloning this indicator; otherwise it disappears when we transpose the data*/
+clonevar indicator1 = indicator
+
+/*reshaping the data semi-wide, attaching indicator name with time periods*/	
+reshape wide fy18q2 fy18T_ fy18q4 fy18apr, i(id) j(indicator1, string)
+
+/*renamining and abbreviating num denom*/
+clonevar nd = numeratordenom
+replace nd="_N" if nd=="N"
+replace nd="_D" if nd=="D"
+
+/*cloning this indicator; otherwise it disappears when we transpose the data*/
+clonevar nd1 = nd
+
+/*reshaping the data semi-wide, attaching num and den designation*/
+reshape wide fy18T_TB_ART fy18q2TB_ART fy18q4TB_ART fy18aprTB_ART fy18T_TB_PREV fy18q2TB_PREV ///
+	fy18q4TB_PREV fy18aprTB_PREV fy18T_TB_STAT fy18q2TB_STAT fy18q4TB_STAT fy18aprTB_STAT ///
+	fy18T_TB_STAT_POS fy18q2TB_STAT_POS fy18q4TB_STAT_POS fy18aprTB_STAT_POS fy18T_TX_CURR ///
+	fy18q2TX_CURR fy18q4TX_CURR fy18aprTX_CURR fy18T_TX_NEW fy18q2TX_NEW fy18q4TX_NEW ///
+	fy18aprTX_NEW fy18T_TX_TB fy18q2TX_TB fy18q4TX_TB fy18aprTX_TB, i(id) j(nd1, string)
+
+/*deleted variables w/ missing data*/
+	ds, not(type string)
+foreach varname of varlist `r(varlist)' {
+ quietly sum `varname'
+ if `r(N)'==0 {
+  drop `varname'
+  disp "dropped `varname' for missing data"
+ }
+}
+
+
+/*renamining stand disaggs so they will attach better to the new names after transposing the data*/
+gen standdisagg = "aggagesex" if standardizeddisaggregate == "Age Aggregated/Sex"
+	replace standdisagg = "aggagesxst" if standardizeddisaggregate == "Age Aggregated/Sex/HIVStatus"
+	replace standdisagg = "aggagesxkn" if standardizeddisaggregate == "Age Aggregated/Sex/KnownNewPosNeg"
+	replace standdisagg = "age_sex_st" if standardizeddisaggregate == "Age/Sex/HIVStatus"
+	replace standdisagg = "newexart_s" if standardizeddisaggregate == "NewExistingArt/HIVStatus"
+	replace standdisagg = "posscreen" if standardizeddisaggregate == "PositiveScreen"
+	replace standdisagg = "spec_sent" if standardizeddisaggregate == "Specimen Sent"
+	replace standdisagg = "spc_snt_s" if standardizeddisaggregate == "Specimen Sent/HIVStatus"
+	replace standdisagg = "tb_tst_typ" if standardizeddisaggregate == "TB Test Type/HIVStatus"
+	replace standdisagg = "tb_scr_art" if standardizeddisaggregate == "TBScreen/NewExistingART/HIVStatus"
+	replace standdisagg = "ther_type" if standardizeddisaggregate == "TherapyType"
+	replace standdisagg = "th_tpe_art" if standardizeddisaggregate == "TherapyType/NewExistingArt/HIVStatus"
+	replace standdisagg = "keypop" if standardizeddisaggregate == "KeyPop/HIVStatus"
+	replace standdisagg = "pregorbf" if standardizeddisaggregate == "PregnantOrBreastfeeding/HIVStatus"
+	replace standdisagg = "tb_diag" if standardizeddisaggregate == "TB Diagnosis/HIVStatus"
+	replace standdisagg = "tot_den" if standardizeddisaggregate == "Total Denominator"
+	replace standdisagg = "tot_num" if standardizeddisaggregate == "Total Numerator"
+	
+/*reshaping the data semi-wide; attaching the indicator names_results/targets with part of the stand disagg*/	
+reshape wide fy18T_TB_ART_D fy18T_TB_PREV_D fy18q2TB_PREV_D fy18q4TB_PREV_D fy18aprTB_PREV_D fy18T_TB_STAT_D ///
+	fy18q2TB_STAT_D fy18q4TB_STAT_D fy18aprTB_STAT_D fy18T_TX_TB_D fy18q2TX_TB_D fy18q4TX_TB_D fy18aprTX_TB_D ///
+	fy18T_TB_ART_N fy18q2TB_ART_N fy18q4TB_ART_N fy18aprTB_ART_N fy18T_TB_PREV_N fy18q2TB_PREV_N fy18q4TB_PREV_N ///
+	fy18T_TB_STAT_N fy18q2TB_STAT_N fy18q4TB_STAT_N fy18aprTB_STAT_N fy18q2TB_STAT_POS_N fy18q4TB_STAT_POS_N ///
+	fy18aprTB_STAT_POS_N fy18T_TX_CURR_N fy18q2TX_CURR_N fy18q4TX_CURR_N fy18aprTX_CURR_N fy18T_TX_NEW_N ///
+	fy18q2TX_NEW_N fy18q4TX_NEW_N fy18T_TX_TB_N fy18q2TX_TB_N fy18q4TX_TB_N fy18aprTX_TB_N, i(id) j(standdisagg, string)
+
+/*disabling more to see all the output*/
+set more off
+	
+/*deleted variables w/ missing data*/
+	ds, not(type string)
+foreach varname of varlist `r(varlist)' {
+ quietly sum `varname'
+ if `r(N)'==0 {
+  drop `varname'
+  disp "dropped `varname' for missing data"
+ }
+}
+
+/*drop variables that are no longer needed*/
+drop id nd mechanismuid
+
+/*save "C:\Users\GHFP\Desktop\TB data\Data from Genie\TB_HIV_data_10nov2018_semi_wide.dta"*/
+
+/*sort by operating unit*/
+sort operatingunit
+
+/*exporting to excel*/
+export delimited using "C:\Users\GHFP\Desktop\TB data\Data from Genie\TB_HIV_data_12nov2018_semi_wide.csv", replace
