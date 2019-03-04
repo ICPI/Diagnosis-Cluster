@@ -1,0 +1,1483 @@
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(scales)
+library(ggplot2)
+library(janitor)
+library(plotly)
+library(knitr)
+library(kableExtra)
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ============= Functions used in code ~~~~~~~===============
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Creating the 'not in' function
+`%ni%` <- Negate(`%in%`) 
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ============= Pulling in MSD PSNU-IM data ~~~~~~~=============
+# ==================== NEW FORMAT FY19 =========================
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+# Set working directory
+setwd("//cdc.gov/project/CGH_DGHT_GTB/PEPFAR TB_HIV/data_and_code")
+
+# Rough data pull to get variable names and assign datatype
+foo <- read_csv(file="2019Feb08_OU_datasets_11_26_02/2019Feb08Eswatini_new_11_26_02.csv",
+                   col_names = TRUE)
+
+foonames <- names(foo)
+
+colvecx <- as.vector(ifelse(grepl("fy", foonames), "d", "c"))
+colvec <- paste(colvecx, collapse = '')
+
+#pulling in restructured dataset subset to country; produced in script GTB_output_new_msd
+ou <- read_csv(file="2019Feb08_OU_datasets_11_26_02/2019Feb08South Africa_new_11_26_02.csv",
+                   col_names = TRUE,
+                   col_types=colvec)
+
+ouname<-distinct(ou, countryname)
+
+#creating dataset with oulevel sums for all indicators
+oulev <- ou[c(-2,-3,-4,-5,-6)]%>%
+  adorn_totals("row")%>%
+  filter(operatingunit=="Total")%>%
+  mutate(fy18_TB_STAT = round(as.numeric(fy18apr_TB_STAT_N/fy18apr_TB_STAT_D), 2),
+         fy17_TB_STAT = round(as.numeric(fy17apr_TB_STAT_N/fy17apr_TB_STAT_D), 2),
+         fy18_TB_PREV = round(as.numeric(fy18apr_TB_PREV_N/fy18apr_TB_PREV_D), 2),
+         fy17_TB_PREV = round(as.numeric(fy17apr_TB_PREV_N/fy17apr_TB_PREV_D), 2),
+         fy18_TB_ART  = round(as.numeric(fy18apr_TB_ART_N/fy18apr_TB_STAT_HIVpos), 2),
+         fy17_TB_ART  = round(as.numeric(fy17apr_TB_ART_N/fy17apr_TB_STAT_HIVpos), 2))
+
+oulev<- oulev%>%
+  mutate(fy18_TB_ART_p  = percent(as.numeric(fy18apr_TB_ART_N/fy18apr_TB_STAT_HIVpos)),
+         fy17_TB_ART_p  = percent(as.numeric(fy17apr_TB_ART_N/fy17apr_TB_STAT_HIVpos)),
+         tpt_cum = as.numeric(fy17q2_TB_PREV_N+ fy17q4_TB_PREV_N+fy18q2_TB_PREV_N+ fy18q4_TB_PREV_N))
+
+#creating a dataset with snu level sums for all indicators
+snu1 <- ou%>%
+  group_by(operatingunit, snu1)%>%
+  summarise_if(is.numeric, sum, na.rm = TRUE) %>% 
+  ungroup()%>%
+    mutate(fy18_TB_STAT = round(fy18apr_TB_STAT_N/fy18apr_TB_STAT_D, 2),
+         fy17_TB_STAT = round(fy17apr_TB_STAT_N/fy17apr_TB_STAT_D, 2),
+         fy18_TB_PREV = round(fy18apr_TB_PREV_N/fy18apr_TB_PREV_D, 2),
+         fy17_TB_PREV = round(fy17apr_TB_PREV_N/fy17apr_TB_PREV_D, 2),
+         fy18_TB_ART  = round(fy18apr_TB_ART_N/fy18apr_TB_STAT_HIVpos, 2),
+         fy17_TB_ART  = round(fy17apr_TB_ART_N/fy17apr_TB_STAT_HIVpos, 2),
+         tpt_cum = fy17q2_TB_PREV_N+ fy17q4_TB_PREV_N+fy18q2_TB_PREV_N+ fy18q4_TB_PREV_N)
+
+#creating a long format dataframe
+long <- oulev%>%
+  gather(period,value,-1)
+#assigning numeric class to value
+long$value<- as.numeric(as.character(long$value))
+
+#creating a dataset with funding agency sums for all indicators
+agency <- ou%>%
+  group_by(fundingagency)%>%
+  summarise_if(is.double, sum, na.rm = TRUE ) %>% 
+  ungroup()%>%
+    mutate(fy18_TB_STAT = round(fy18apr_TB_STAT_N/fy18apr_TB_STAT_D, 2),
+         fy17_TB_STAT = round(fy17apr_TB_STAT_N/fy17apr_TB_STAT_D, 2),
+         fy18_TB_PREV = round(fy18apr_TB_PREV_N/fy18apr_TB_PREV_D, 2),
+         fy17_TB_PREV = round(fy17apr_TB_PREV_N/fy17apr_TB_PREV_D, 2),
+         fy18_TB_ART  = round(fy18apr_TB_ART_N/fy18apr_TB_STAT_HIVpos, 2),
+         fy17_TB_ART  = round(fy17apr_TB_ART_N/fy17apr_TB_STAT_HIVpos, 2),
+         tpt_cum = fy17q2_TB_PREV_N+ fy17q4_TB_PREV_N+fy18q2_TB_PREV_N+ fy18q4_TB_PREV_N)
+
+#creating long dataset for agency
+longagency <-agency%>%
+  gather(period,value,-1)
+#assigning numeric class to value
+longagency$value <-as.numeric(as.character(longagency$value))
+
+#creating a dataset with partner sums for all indicators
+partner <- ou%>%
+  group_by(fundingagency, primepartner)%>%
+  summarise_if(is.double, sum, na.rm = TRUE ) %>% 
+  ungroup()%>%
+    mutate(fy18_TB_STAT = round(fy18apr_TB_STAT_N/fy18apr_TB_STAT_D,digits=2),
+         fy17_TB_STAT = round(fy17apr_TB_STAT_N/fy17apr_TB_STAT_D,digits=2),
+         fy18_TB_PREV = round(fy18apr_TB_PREV_N/fy18apr_TB_PREV_D,digits=2),
+         fy17_TB_PREV = round(fy17apr_TB_PREV_N/fy17apr_TB_PREV_D,digits=2),
+         fy18_TB_ART  = round(fy18apr_TB_ART_N/fy18apr_TB_STAT_HIVpos,digits=2),
+         fy17_TB_ART  = round(fy17apr_TB_ART_N/fy17apr_TB_STAT_HIVpos,digits=2),
+         tpt_cum = fy17q2_TB_PREV_N+ fy17q4_TB_PREV_N+fy18q2_TB_PREV_N+ fy18q4_TB_PREV_N)
+
+longsnu <-snu1%>%
+  gather(period,value,-1,-2)
+#assigning numeric class to value
+longsnu$value <-as.numeric(as.character(longsnu$value))
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ============= Pulling in data from UNAIDS and WHO ~~~~~=======
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+unaidslist <-c("Viet Nam",
+            "Myanmar",
+            "C<f4>te d'Ivoire",
+            "United Republic of Tanzania",
+            "Swaziland") 
+
+#pulling in historical country estimates for PLHIV
+unaids <- read_csv(file="UNAIDS/unaids_PLHIV_allages_20190111.csv",
+                   col_names = TRUE)%>%
+  mutate(country1 = case_when(Country=="Viet Nam" ~ "Vietnam",
+                              Country=="Myanmar" ~ "Burma",
+                              Country=="Côte d'Ivoire" ~ "Cote d'Ivoire",
+                              Country=="United Republic of Tanzania" ~ "Tanzania",
+                              Country=="Swaziland" ~ "Eswatini",
+                              Country %ni% unaidslist ~ Country))%>%
+  filter(country1 %in% ouname)%>%
+  gather(year, value, -Country, -country1)%>%
+  separate(value, "plhiv", sep="\\[|\\]", remove=FALSE, convert=FALSE)%>%
+  mutate_all(funs(if(is.integer(.))as.numeric(.)else .))
+
+wholist <-c("Viet Nam",
+            "Myanmar",
+            "Côte d'Ivoire",
+            "United Republic of Tanzania") 
+
+#pulling in WHO TB data
+who <- read_csv(file="WHO/TB_notifications_2019-01-18.csv",
+                col_names = TRUE)%>%
+  mutate(country1 = case_when(country=="Viet Nam" ~ "Vietnam",
+                              country=="Myanmar" ~ "Burma",
+                              country=="Côte d'Ivoire" ~ "Cote d'Ivoire",
+                              country=="United Republic of Tanzania" ~ "Tanzania",
+                              country %ni% wholist ~ country))%>%
+  filter(country1 %in% ouname)
+  
+who_newinc <- filter(who, year==2017)%>%select(c_newinc)
+unaids_plhiv_range <- filter(unaids, year==2017)%>%select(value)
+unaids_plhiv1 <- filter(unaids, year==2017)%>%select(plhiv)
+
+
+
+```
+
+---
+title: "PEPFAR TB/HIV Country Report: `r ouname`"
+subtitle: "Period: FY18APR"
+date: '`r Sys.time()`'
+output: 
+  html_document:
+---
+
+Output notes: These reports are based on PEPFAR data and will be generated 8x yearly in alignment with the release of the MER structured datasets. Results reported are for the most recent reporting period. 
+
+###TB/HIV Data {.tabset}
+
+
+####OU Level 
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**TB/HIV Cases**  </span>  
+</div>  
+
+Metric                                            | Value
+--------------------------------------------------|----------------------------------------
+Total new/relapse TB case notifications^1^        |`r prettyNum(who_newinc,big.mark=",")`  
+PEPFAR-reported registered new/relapse TB cases   |`r prettyNum(oulev$fy18apr_TB_STAT_D, big.mark=",") `
+Estimated total PLHIV^2^                          |`r unaids_plhiv_range`  
+PEPFAR-supported PLHIV (TX_CURR)                  |`r prettyNum(oulev$fy18apr_TX_CURR_N, big.mark=",") `
+                                                  
+^1^WHO Data, `r max(who$year)`, ^2^UNAIDS Data, `r max(unaids$year)`
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**HIV Testing and Treatment Cascade** </span>  
+</div> 
+
+Creating basic pano cascade:
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating basic pano cascade for ou level
+plist <- c("fy18apr_TB_STAT_D",
+           "fy18apr_TB_STAT_N",
+           "fy18apr_TB_STAT_HIVpos",
+           "fy18apr_TB_ART_N")
+
+cascade <- long%>%
+  filter(period %in% plist)%>% 
+  mutate(label = case_when(
+    grepl("TB_STAT_D", period) ~ "1. New/Relapse TB cases (TB_STAT Denominator)",
+    grepl("TB_STAT_N", period) ~ "2. TB cases with HIV status (TB_STAT Numerator)",
+    grepl("TB_STAT_HIVpos", period) ~ "3. TB cases with positive HIV status (TB_STAT_POS)",
+    grepl("TB_ART_N", period) ~ "4. HIV+ TB cases on ART (TB_ART Numerator)"
+  ))
+  
+cas<- ggplot(data= cascade, mapping = aes(label, value)) + 
+  geom_bar(stat = "identity", fill="#B0C4DE")+
+  scale_y_continuous(name=" ", labels=comma)+
+  scale_x_discrete(name= "",labels = function(x) str_wrap(x, width = 15))+
+  theme_classic() +
+  ggtitle ("HIV Testing/Treatment Cascade")
+
+ggplotly(cas)
+
+```
+
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**HIV Testing among TB Cases: TB_STAT** </span>  
+</div> 
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating reminders for definitions of TB_STAT in table form
+text_tbl_stat <- data.frame(
+  Indicator = c("N", "D"),
+  Definition = c(
+    "N: # of new/relapse TB cases with documented HIV status in the reporting period",   
+    "D: # of new/relapse TB cases in the reporting period  "
+  ))
+
+x_stat=kable(text_tbl_stat) %>%
+  kable_styling(full_width = F, position="left") %>%
+  column_spec(1, bold = T, border_right = T) %>%
+  column_spec(2, width = "25em")%>%
+  group_rows("TB_STAT", 1, 2) 
+gsub("<thead>.*</thead>", "",x_stat )
+
+```
+
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating table of target achievement for TB_STAT at OU level
+table_stat <- oulev%>%
+  select(fy18_TB_STAT, fy18apr_TB_STAT_N, fy18targets_TB_STAT_N, fy18apr_TB_STAT_D, fy18targets_TB_STAT_D)%>%
+  mutate(num_pct_tar = round(fy18apr_TB_STAT_N/fy18targets_TB_STAT_N,digits=2)*100,
+         den_pct_tar = round(fy18apr_TB_STAT_D/fy18targets_TB_STAT_D,digits=2)*100,
+         TB_STAT_1   = fy18_TB_STAT*100)%>%
+  mutate(
+    N_achievement = cell_spec(num_pct_tar,"html", color=ifelse(num_pct_tar>90, "green", "red")),
+    D_achievement = cell_spec(den_pct_tar,"html", color=ifelse(den_pct_tar>90, "green", "red")),
+    TB_STAT = cell_spec(TB_STAT_1,"html", color=ifelse(TB_STAT_1>90, "green", "red"))
+  )
+
+select(table_stat,TB_STAT,  fy18apr_TB_STAT_N, fy18targets_TB_STAT_N, N_achievement,fy18apr_TB_STAT_D, fy18targets_TB_STAT_D, D_achievement)%>%
+  kable(format="html",format.args =list(big.mark=","), align="c", escape = F, col.names =
+        c(
+        "TB_STAT (%)",
+        "Result",
+        "Target",
+        "% of Target",
+        "Result",
+        "Target",
+        "% of Target"))%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),position="left", full_width= F)%>%
+  add_header_above((c(" "=1, "TB_STAT Numerator"=3, "TB_STAT Denominator"=3)))
+
+
+```
+
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**HIV Treatment among TB Cases: TB_ART** </span>  
+</div> 
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating reminders for definitions of TB_ART in table form
+text_tbl_art <- data.frame(
+  Indicator = c("N", "D"),
+  Definition = c(
+    "N: # of new/relapse TB cases who start or continue ART in the reporting period",  
+    "D: # of new/relapse TB cases who are HIV+ (TB_STAT_POS)"
+  ))
+
+x_art=kable(text_tbl_art) %>%
+  kable_styling(full_width = F, position="left") %>%
+  column_spec(1, bold = T, border_right = T) %>%
+  column_spec(2, width = "25em")%>%
+  group_rows("TB_ART", 1, 2)
+gsub("<thead>.*</thead>", "",x_art )
+
+```
+
+```{r echo=FALSE, warning=FALSE}
+#prepping data for table of OU level TB_ART
+table_art <- oulev%>%
+  select(fy18_TB_ART, fy18apr_TB_ART_N, fy18targets_TB_ART_N, fy18apr_TB_STAT_HIVpos, fy18apr_TB_STAT_N)%>%
+  mutate(num_pct_tar = round(fy18apr_TB_ART_N/fy18targets_TB_ART_N,digits=2)*100,
+         pct_pos = round(fy18apr_TB_STAT_HIVpos/fy18apr_TB_STAT_N,digits=2)*100,
+         TB_ART_1   = fy18_TB_ART*100)%>%
+  mutate(
+    N_achievement = cell_spec(num_pct_tar,"html", color=ifelse(num_pct_tar>90, "green", "red")),
+    TB_ART = cell_spec(TB_ART_1,"html", color=ifelse(TB_ART_1>90, "green", "red"))
+  )
+
+#executing table for OU level TB_ART
+select(table_art,TB_ART,  fy18apr_TB_ART_N, fy18targets_TB_ART_N, N_achievement,fy18apr_TB_STAT_HIVpos, pct_pos)%>%
+  kable(format="html",format.args =list(big.mark=","), align="c", escape = F, col.names =
+        c(
+        "TB_ART (%)",
+        "Result",
+        "Target",
+        "% of Target",
+        "HIV Positive",
+        "% HIV Positive"))%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),position="left", full_width= F)%>%
+  add_header_above((c(" "=1, "TB_ART Numerator"=3, "Positive HIV Proportion"=2)))
+  
+```
+
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**TB Testing, Treatment and Prevention Cascade**  </span>  
+</div> 
+
+
+Creating basic pano cascade for TB treatment:
+*starting in FY19 this cascade will include a column for "specimen received"
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating the pano cascade for TB treatment at the OU level
+plist1_2 <- c("fy18apr_TB_PREV_N",
+              "fy18apr_TB_PREV_D",
+              "fy18apr_TX_TB_TBneg",
+              "fy18apr_TX_TB_D",
+              "fy18apr_TX_TB_TBpos",
+              "fy18apr_TX_TB_sent",
+              "fy18apr_TX_TB_N")
+
+cascade1_2 <- long%>%
+  filter(period %in% plist1_2)%>% 
+  mutate(label = case_when(
+    grepl("TB_PREV_N", period) ~ "1. ART patients who completed TPT (TB_PREV Numerator)",
+    grepl("TB_PREV_D", period) ~ "2. ART patients expected to complete TPT (TB_PREV Denominator)",
+    grepl("TBneg", period) ~ "3. ART patients screened negative for TB",
+    grepl("TX_TB_D", period) ~ "4. ART patients screened for TB (TX_TB Denominator)",
+    grepl("TBpos", period) ~ "5. ART patients screened positive for TB",
+    grepl("sent", period) ~ "6. ART patients with a specimen sent",
+    grepl("received", period) ~ "7. ART patients with a result received",
+    grepl("TX_TB_N", period) ~ "8. ART patients started on TB treatment (TX_TB Numerator)"
+  ))
+  
+cas1_2<- ggplot(data= cascade1_2, mapping = aes(label, value)) + 
+  geom_bar(stat = "identity", fill="#B0C4DE")+
+  scale_y_continuous(name="",labels=comma)+
+  scale_x_discrete(name= "",labels = function(x) str_wrap(x, width = 10))+
+  theme_classic() +
+  ggtitle ("TB Treatment/Prevention Cascade")
+
+ggplotly(cas1_2)
+
+```
+
+#####TB Treatment Side of Cascade
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating the pano cascade for TB treatment at the OU level
+plist1_3 <- c("fy18apr_TX_TB_TBpos",
+              "fy18apr_TX_TB_sent",
+              "fy18apr_TX_TB_N")
+
+cascade1_3 <- long%>%
+  filter(period %in% plist1_3)%>% 
+  mutate(label = case_when(
+    grepl("TBpos", period) ~ "5. ART patients screened positive for TB",
+    grepl("sent", period) ~ "6. ART patients with a specimen sent",
+    grepl("received", period) ~ "7. ART patients with a result received",
+    grepl("TX_TB_N", period) ~ "8. ART patients started on TB treatment (TX_TB Numerator)"
+  ))
+  
+cas1_3<- ggplot(data= cascade1_3, mapping = aes(label, value)) + 
+  geom_bar(stat = "identity", fill="#B0C4DE")+
+  scale_y_continuous(name="",labels=comma)+
+  scale_x_discrete(name= "",labels = function(x) str_wrap(x, width = 15))+
+  theme_classic() +
+  ggtitle ("TB Treatment Side of Cascade")
+
+ggplotly(cas1_3)
+
+```
+
+
+#####TB Prevention Side of Cascade
+
+Total PEPFAR-recorded TPT completions to date: **`r prettyNum(oulev$tpt_cum,big.mark=",")`**
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating the pano cascade for TB treatment at the OU level
+plist1_4 <- c("fy18apr_TB_PREV_N",
+              "fy18apr_TB_PREV_D",
+              "fy18apr_TX_TB_TBneg",
+              "fy18apr_TX_TB_D")
+
+cascade1_4 <- long%>%
+  filter(period %in% plist1_4)%>% 
+  mutate(label = case_when(
+    grepl("TB_PREV_N", period) ~ "1. ART patients who completed TPT (TB_PREV Numerator)",
+    grepl("TB_PREV_D", period) ~ "2. ART patients expected to complete TPT (TB_PREV Denominator)",
+    grepl("TBneg", period) ~ "3. ART patients screened negative for TB",
+    grepl("TX_TB_D", period) ~ "4. ART patients screened for TB (TX_TB Denominator)"
+  ))
+  
+cas1_4<- ggplot(data= cascade1_4, mapping = aes(label, value)) + 
+  geom_bar(stat = "identity", fill="#B0C4DE")+
+  scale_y_continuous(name="",labels=comma)+
+  scale_x_discrete(name= "",labels = function(x) str_wrap(x, width = 10))+
+  theme_classic() +
+  ggtitle ("TB Prevention Side of Cascade")
+
+ggplotly(cas1_4)
+```
+
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+
+####<span style="color:white">**TB Testing and Treatment among PLHIV: TX_TB**  </span>  
+
+</div>
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating reminders for definitions of TX_TB 
+text_tbl1_3 <- data.frame(
+  Indicator = c("N", "D"),
+  Definition = c(
+    "N: # PLHIV who were started on TB treatment in the reporting period",   
+    "D: # PLHIV screened for TB at least once in the reporting period  "
+  ))
+
+x1_3=kable(text_tbl1_3) %>%
+  kable_styling(full_width = F, position="left") %>%
+  column_spec(1, bold = T, border_right = T) %>%
+  column_spec(2, width = "40em")%>%
+  group_rows("TX_TB", 1, 2) 
+gsub("<thead>.*</thead>", "",x1_3 )
+
+```
+
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating table of target achievement for TB_STAT at OU level
+table_tx <- oulev%>%
+  select(fy18apr_TX_TB_N, fy18targets_TX_TB_N, fy18apr_TX_TB_D, fy18targets_TX_TB_D)%>%
+  mutate(num_pct_tar = round(fy18apr_TX_TB_N/fy18targets_TX_TB_N,digits=2)*100,
+         den_pct_tar = round(fy18apr_TX_TB_D/fy18targets_TX_TB_D,digits=2)*100)%>%
+  mutate(
+    N_achievement = cell_spec(num_pct_tar,"html", color=ifelse(num_pct_tar>90, "green", "red")),
+    D_achievement = cell_spec(den_pct_tar,"html", color=ifelse(den_pct_tar>90, "green", "red")))
+    
+select(table_tx,fy18apr_TX_TB_N, fy18targets_TX_TB_N, N_achievement,fy18apr_TX_TB_D, fy18targets_TX_TB_D, D_achievement)%>%
+  kable(format="html",format.args =list(big.mark=","), align="c", escape = F, col.names =
+        c(
+        "Result",
+        "Target",
+        "% of Target",
+        "Result",
+        "Target",
+        "% of Target"))%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),position="left", full_width= F)%>%
+  add_header_above((c("TX_TB Numerator"=3, "TX_TB Denominator"=3)))
+
+
+```
+
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+
+####<span style="color:white">**TB Preventive Therapy among PLHIV: TB_PREV**  </span>  
+
+</div>
+
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating reminders for definitions TB_PREV in table form
+text_tbl1_4 <- data.frame(
+  Indicator = c("N", "D"),
+  Definition = c(
+    "N: # PLHIV who completed a course of TPT in the reporting period",  
+    "D: # PLHIV expected to complete a course of TPT in the reporting period *expected to complete defined as having started TPT 6 months prior"
+  )
+)
+
+x1_4=kable(text_tbl1_4) %>%
+  kable_styling(full_width = F, position="left") %>%
+  column_spec(1, bold = T, border_right = T) %>%
+  column_spec(2, width = "40em")%>%
+  group_rows("TB_PREV", 1, 2)
+gsub("<thead>.*</thead>", "",x1_4 )
+
+
+```
+
+```{r echo=FALSE, warning=FALSE}
+
+# Creating table for TB_PREV target achievement at OU level
+table_prev1 <- oulev%>%
+  select(fy18_TB_PREV,fy18apr_TB_PREV_N, fy18targets_TB_PREV_N, fy18apr_TB_PREV_D, fy18targets_TB_PREV_D, fy18_TB_PREV)%>%
+  mutate(num_pct_tar = round(fy18apr_TB_PREV_N/fy18targets_TB_PREV_N,digits=2)*100,
+         den_pct_tar = round(fy18apr_TB_PREV_D/fy18targets_TB_PREV_D,digits=2)*100,
+         TB_PREV_1   = fy18_TB_PREV*100,
+         N_achievement = cell_spec(num_pct_tar,"html", color=ifelse(is.nan(num_pct_tar),"gray",ifelse(num_pct_tar>90, "green", "red"))),
+         D_achievement = cell_spec(den_pct_tar,"html", color=ifelse(is.nan(den_pct_tar),"gray",ifelse(den_pct_tar>90, "green", "red"))),
+         TB_PREV = cell_spec(TB_PREV_1,"html", color=ifelse(is.nan(den_pct_tar),"gray",ifelse(TB_PREV_1>90, "green", "red")))
+    )%>%
+  arrange(num_pct_tar)
+
+select(table_prev1, TB_PREV,fy18apr_TB_PREV_N, fy18targets_TB_PREV_N, N_achievement,fy18apr_TB_PREV_D, fy18targets_TB_PREV_D, D_achievement)%>%
+  kable(format="html",format.args =list(big.mark=","), align="c", escape = F, col.names =
+        c("TB_PREV (%)",
+          "Result",
+        "Target",
+        "% of Target",
+        "Result",
+        "Target",
+        "% of Target"))%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),position="left", full_width= F)%>%
+  add_header_above((c(" "=1, "TB_PREV Numerator"=3, "TB_PREV Denominator"=3)))
+  
+```
+
+####SNU1 Level
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**TB/HIV Cases**  </span>  
+</div>  
+
+
+```{r echo=FALSE, warning=FALSE}
+
+all_plhiv_snu <- ggplot(data= snu1, mapping = aes(reorder(snu1, fy18apr_TX_CURR_N), fy18apr_TX_CURR_N)) + 
+  geom_bar(stat = "identity", fill="#B0C4DE") +
+  scale_y_continuous(name="", labels=comma)+
+  scale_x_discrete(name=" ")+
+  theme_classic() +
+  ggtitle ("TX_CURR by SNU1")+
+  theme(axis.text.x = element_text(hjust=1))+
+  coord_flip()
+
+ggplotly(all_plhiv_snu)
+```
+
+***
+
+```{r echo=FALSE, warning=FALSE}
+pep_tb_snu <- ggplot(data= snu1, mapping = aes(reorder(snu1, fy18apr_TB_STAT_D), fy18apr_TB_STAT_D)) + 
+  geom_bar(stat = "identity", fill="#B0C4DE") +
+  scale_y_continuous(name="", labels=comma)+
+  scale_x_discrete(name=" ")+
+  theme_classic() +
+  ggtitle ("Registered new/relapse TB cases by SNU1")+
+  theme(axis.text.x = element_text(hjust=1))+
+  coord_flip()
+
+ggplotly(pep_tb_snu)
+
+```
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**HIV Testing and Treatment Cascade** </span>  
+</div> 
+Creating this cascade across SNU1s for comparison:
+
+```{r echo=FALSE}
+ 
+cascade_snu <- longsnu%>%
+  filter(period %in% plist)%>%
+  mutate(label = case_when(
+    grepl("TB_STAT_D", period) ~ "1.",
+    grepl("TB_STAT_N", period) ~ "2.",
+    grepl("TB_STAT_HIVpos", period) ~ "3.",
+    grepl("TB_ART_N", period) ~ "4."
+  ))
+
+wrap <-ggplot(data = cascade_snu, mapping = aes(label, value)) + 
+  geom_bar(stat="identity", fill="#B0C4DE") +
+  facet_wrap(~snu1, scale="free")+
+  scale_y_continuous(name="", labels=comma)+
+  scale_x_discrete(name= "",labels = function(x) str_wrap(x, width = 5))+
+  theme_classic() +
+  ggtitle ("HIV Testing/Care Cascade by SNU1")+
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
+
+ggplotly(wrap)
+
+```
+
+1. New/Relapse TB cases (TB_STAT Denominator)  
+2. TB cases with HIV status (TB_STAT Numerator)  
+3. TB cases with positive HIV status (TB_STAT_POS)  
+4. HIV+ TB cases on ART (TB_ART Numerator)
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**HIV Testing among TB Cases: TB_STAT** </span>  
+</div> 
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating reminders for definitions of TB_STAT in table form
+gsub("<thead>.*</thead>", "",x_stat )
+
+```
+
+```{r echo=FALSE, warning=FALSE}
+
+# Graph for TB_STAT by SNU1
+snu1$stat_type <- ifelse(snu1$fy18_TB_STAT < .90, "Below 90%", "Above 90%")  # above / below avg flag
+
+tb_stat_snu <- ggplot(data= snu1, mapping = aes(snu1, fy18_TB_STAT)) + 
+  geom_bar(stat = "identity", aes(fill=stat_type)) +
+  scale_y_continuous(name=" ", limits=c(0.00,1.00), labels = percent)+
+  scale_x_discrete(name=" ")+
+  theme_bw() +
+  ggtitle ("TB_STAT by SNU1")+
+  scale_fill_manual(name=" ",
+                    labels = c("Above Target", "Below Target"),
+                    values = c("Above 90%"="#B0C4DE", "Below 90%"="#8B0000"))+
+  theme(axis.text.x = element_text(hjust=1,angle=45),
+        legend.position = "right")
+
+ggplotly(tb_stat_snu)%>%
+    layout(legend = list(
+      orientation = "v"))
+
+```
+
+#####Target Achievement   
+
+```{r echo=FALSE, warning=FALSE}
+
+# Creating table for TB_STAT target achievement across SNU
+table1 <- snu1%>%
+  select(snu1, fy18apr_TB_STAT_N, fy18targets_TB_STAT_N, fy18apr_TB_STAT_D, fy18targets_TB_STAT_D, fy18_TB_STAT)%>%
+  mutate(num_pct_tar = round(fy18apr_TB_STAT_N/fy18targets_TB_STAT_N,digits=2)*100,
+         den_pct_tar = round(fy18apr_TB_STAT_D/fy18targets_TB_STAT_D,digits=2)*100,
+         TB_STAT_1   = fy18_TB_STAT*100,
+         N_achievement = cell_spec(num_pct_tar,"html", color=ifelse(is.nan(num_pct_tar),"gray",ifelse(num_pct_tar>90, "green", "red"))),
+         D_achievement = cell_spec(den_pct_tar,"html", color=ifelse(is.nan(den_pct_tar),"gray",ifelse(den_pct_tar>90, "green", "red"))),
+         TB_STAT = cell_spec(TB_STAT_1,"html", color=ifelse(is.nan(TB_STAT_1),"gray",ifelse(TB_STAT_1>90, "green", "red")))
+    )%>%
+  arrange(num_pct_tar)
+
+select(table1, snu1,fy18apr_TB_STAT_N, fy18targets_TB_STAT_N, N_achievement,fy18apr_TB_STAT_D, fy18targets_TB_STAT_D, D_achievement)%>%
+  kable(format="html",format.args =list(big.mark=","), align="c", escape = F, col.names =
+        c("SNU1",
+        "Result",
+        "Target",
+        "% of Target",
+        "Result",
+        "Target",
+        "% of Target"))%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),position="left", full_width= F)%>%
+  add_header_above((c(" "=1, "TB_STAT Numerator"=3, "TB_STAT Denominator"=3)))
+
+```
+
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**HIV Treatment among TB Cases: TB_ART** </span>  
+</div> 
+
+
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating reminders for definitions of TB_ART in table form
+gsub("<thead>.*</thead>", "",x_art )
+
+```
+
+
+```{r echo=FALSE, warning=FALSE}
+
+#graph of SNU-level TB_ART indicator
+snu1$art_type <- ifelse(snu1$fy18_TB_ART >  1.0,"Above 100%- check data", 
+                        ifelse(snu1$fy18_TB_ART >.9 & snu1$fy18_TB_ART<=1.0, "Above 90%", "Below 90%"))  # above / below avg flag
+
+tb_art_snu <- ggplot(data= snu1, mapping = aes(snu1, fy18_TB_ART)) + 
+  geom_bar(stat = "identity", aes(fill=art_type)) +
+  scale_y_continuous(name=" ", limits=c(0.00,1.00),oob = rescale_none, labels = percent)+
+  scale_x_discrete(name=" ")+
+  theme_bw() +
+  ggtitle ("TB_ART by SNU1")+
+  scale_fill_manual(name=" ",
+                    labels = c("Above Target", "Below Target", "Above 100%- check data"),
+                    values = c("Above 90%"="#B0C4DE", "Below 90%"="#8B0000", "Above 100%- check data"="gray"))+
+  theme(axis.text.x = element_text(hjust=1,angle=45))
+
+ggplotly(tb_art_snu)%>%
+  layout(legend = list(
+      orientation = "v"))
+
+```
+
+#####Target Achievement  
+
+```{r echo=FALSE, warning=FALSE}
+
+table_art1 <- snu1%>%
+  select(snu1, fy18_TB_ART, fy18apr_TB_ART_N, fy18targets_TB_ART_N, fy18apr_TB_STAT_HIVpos, fy18apr_TB_STAT_N)%>%
+  mutate(num_pct_tar = round(fy18apr_TB_ART_N/fy18targets_TB_ART_N,digits=2)*100,
+         pct_pos = round(fy18apr_TB_STAT_HIVpos/fy18apr_TB_STAT_N,digits=2)*100,
+         TB_ART_1   = fy18_TB_ART*100,
+         N_achievement = cell_spec(num_pct_tar,"html", color=ifelse(is.nan(num_pct_tar),"gray",ifelse(num_pct_tar>90, "green", "red"))),
+         TB_ART = cell_spec(TB_ART_1,"html", color=ifelse(is.nan(TB_ART_1),"gray",ifelse(TB_ART_1>90, "green", "red")))
+    )%>%
+  arrange(num_pct_tar)
+
+#executing table for OU level TB_ART
+select(table_art1, snu1,fy18apr_TB_ART_N, fy18targets_TB_ART_N, N_achievement,fy18apr_TB_STAT_HIVpos, pct_pos)%>%
+  kable(format="html",format.args =list(big.mark=","), align="c", escape = F, col.names =
+        c(
+        "SNU1",
+        "Result",
+        "Target",
+        "% of Target",
+        "HIV Positive",
+        "% HIV Positive"))%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),position="left", full_width= F)%>%
+  add_header_above((c(" "=1, "TB_ART Numerator"=3, "Positive HIV Proportion"=2)))
+  
+```
+
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**TB Testing, Treatment and Prevention Cascade**  </span>  
+</div> 
+
+Creating the entire cascade for TB 
+
+```{r echo=FALSE}
+#creating the TB treatment cascade by SNU1 
+cascade2_2 <- longsnu%>%
+  filter(period %in% plist1_2)%>%
+  mutate(label = case_when(
+  grepl("TB_PREV_N", period) ~ "1.",
+    grepl("TB_PREV_D", period) ~ "2.",
+    grepl("TBneg", period) ~ "3.",
+    grepl("TX_TB_D", period) ~ "4.",
+    grepl("TBpos", period) ~ "5.",
+    grepl("sent", period) ~ "6.",
+    grepl("received", period) ~ "7.",
+    grepl("TX_TB_N", period) ~ "8."
+  ))
+
+wrap2_2 <-ggplot(data = cascade2_2, mapping = aes(label, value)) + 
+  geom_bar(stat="identity", fill="#B0C4DE") +
+  facet_wrap(~snu1, scale="free")+
+  scale_y_continuous(name="")+
+  scale_x_discrete(name= "")+
+  theme_classic() +
+  ggtitle ("TB Treatment/Prevention Cascade by SNU1")+
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
+
+ggplotly(wrap2_2)
+
+
+```
+1. ART patients who completed TPT (TB_PREV Numerator)
+2. ART patients expected to complete TPT (TB_PREV Denominator)
+3. ART patients screened negative for TB
+4. ART patients screened for TB (TX_TB Denominator)
+5. ART patients screened positive for TB
+6. ART patients with a specimen sent
+7. ART patients with a result received
+8. ART patients started on TB treatment (TX_TB Numerator)
+
+
+
+#####TB Treatment side of Cascade
+
+```{r echo=FALSE}
+#creating the TB treatment cascade by SNU1 
+cascade2_3 <- longsnu%>%
+  filter(period %in% plist1_3)%>%
+  mutate(label = case_when(
+    grepl("TBpos", period) ~ "5.",
+    grepl("sent", period) ~ "6.",
+    grepl("received", period) ~ "7.",
+    grepl("TX_TB_N", period) ~ "8."
+  ))
+
+wrap2_3 <-ggplot(data = cascade2_3, mapping = aes(label, value)) + 
+  geom_bar(stat="identity", fill="#B0C4DE") +
+  facet_wrap(~snu1, scale="free")+
+  scale_y_continuous(name="")+
+  scale_x_discrete(name= "")+
+  theme_classic() +
+  ggtitle ("TB Treatment Cascade by SNU1")+
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
+
+ggplotly(wrap2_3)
+
+```
+
+5. ART patients screened positive for TB,
+6. ART patients with a specimen sent,
+7. ART patients with a result received,
+8. ART patients started on TB treatment (TX_TB Numerator)
+
+#####TB Prevention side of Cascade
+
+```{r echo=FALSE}
+#creating the TB treatment cascade by SNU1 
+cascade2_4 <- longsnu%>%
+  filter(period %in% plist1_4)%>%
+  mutate(label = case_when(
+  grepl("TB_PREV_N", period) ~ "1.",
+    grepl("TB_PREV_D", period) ~ "2.",
+    grepl("TBneg", period) ~ "3.",
+    grepl("TX_TB_D", period) ~ "4."
+  ))
+
+wrap2_4 <-ggplot(data = cascade2_4, mapping = aes(label, value)) + 
+  geom_bar(stat="identity", fill="#B0C4DE") +
+  facet_wrap(~snu1, scale="free")+
+  scale_y_continuous(name="")+
+  scale_x_discrete(name= "")+
+  theme_classic() +
+  ggtitle ("TB Prevention Cascade by SNU1")+
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
+
+ggplotly(wrap2_4)
+
+```
+1. ART patients who completed TPT (TB_PREV Numerator), 
+2. ART patients expected to complete TPT (TB_PREV Denominator),
+3. ART patients screened negative for TB,
+4. ART patients screened for TB (TX_TB Denominator)
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating table of TPT completions by SNU1
+table2_3 <- snu1%>%
+  select(snu1, tpt_cum)%>%
+  arrange(-tpt_cum)
+
+kable(table2_3, format="html",format.args =list(big.mark=","), align="c", escape = F, col.names =
+        c("SNU1",
+          "Historical TPT Completions"))%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),position="left", full_width= F)
+
+```
+
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**TB Testing and Treatment among PLHIV: TX_TB**  </span>  
+</div>
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating reminders for definitions of TX_TB in table form
+gsub("<thead>.*</thead>", "",x1_3 )
+
+```
+
+```{r echo=FALSE, warning=FALSE}
+
+# Creating table of target achievement for TB_STAT at SNU level
+table_tx2 <- snu1%>%
+  select(snu1, fy18apr_TX_TB_N, fy18targets_TX_TB_N, fy18apr_TX_TB_D, fy18targets_TX_TB_D)%>%
+  mutate(num_pct_tar = round(fy18apr_TX_TB_N/fy18targets_TX_TB_N,digits=2)*100,
+         den_pct_tar = round(fy18apr_TX_TB_D/fy18targets_TX_TB_D,digits=2)*100)%>%
+  mutate(
+    N_achievement = cell_spec(num_pct_tar,"html", color=ifelse(num_pct_tar>90, "green", "red")),
+    D_achievement = cell_spec(den_pct_tar,"html", color=ifelse(den_pct_tar>90, "green", "red")))%>%
+  arrange(num_pct_tar)
+    
+select(table_tx2,snu1, fy18apr_TX_TB_N, fy18targets_TX_TB_N, N_achievement,fy18apr_TX_TB_D, fy18targets_TX_TB_D, D_achievement)%>%
+  kable(format="html",format.args =list(big.mark=","), align="c", escape = F, col.names =
+        c(
+        "SNU1",
+        "Result",
+        "Target",
+        "% of Target",
+        "Result",
+        "Target",
+        "% of Target"))%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),position="left", full_width= F)%>%
+  add_header_above((c(" "=1, "TX_TB Numerator"=3, "TX_TB Denominator"=3)))
+
+
+```
+
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+
+####<span style="color:white">**TB Preventive Therapy among PLHIV: TB_PREV**  </span>  
+
+</div>
+
+```{r echo=FALSE, warning=FALSE}
+
+# Definitions of TX_TB in table form
+gsub("<thead>.*</thead>", "",x1_4 )
+
+```
+
+
+```{r echo=FALSE, warning=FALSE}
+
+# Creating table of TB_PREV by SNU1
+snu1$prev_type <- ifelse(snu1$fy18_TB_PREV < .90, "Below 90%", "Above 90%")  # above / below avg flag
+
+tb_prev_snu <- ggplot(data= snu1, mapping = aes(snu1, fy18_TB_PREV)) + 
+  geom_bar(stat = "identity", aes(fill=prev_type)) +
+  scale_y_continuous(name=" ", limits=c(0.00,1.00), labels = percent)+
+  scale_x_discrete(name=" ")+
+  theme_bw() +
+  ggtitle ("TB_PREV by SNU1")+
+  scale_fill_manual(name=" ",
+                    labels = c("Above Target", "Below Target"),
+                    values = c("Above 90%"="#B0C4DE", "Below 90%"="#8B0000"))+
+  theme(axis.text.x = element_text(hjust=1,angle=45))
+
+ggplotly(tb_prev_snu)%>%
+    layout(legend = list(
+      orientation = "v"))
+
+```
+
+#####Target Achievement
+
+Note that some countries will not have targets for TB_PREV prior to FY20. This is the first year targets for this indicator will be set by PEPFAR.
+
+```{r echo=FALSE, warning=FALSE}
+#creating table for TB_STAT target achievement across SNU
+table_prev2 <- snu1%>%
+  select(snu1, fy18apr_TB_PREV_N, fy18targets_TB_PREV_N, fy18apr_TB_PREV_D, fy18targets_TB_PREV_D, fy18_TB_PREV)%>%
+  mutate(num_pct_tar = round(fy18apr_TB_PREV_N/fy18targets_TB_PREV_N,digits=2)*100,
+         den_pct_tar = round(fy18apr_TB_PREV_D/fy18targets_TB_PREV_D,digits=2)*100,
+         TB_PREV_1   = fy18_TB_PREV*100,
+         N_achievement = cell_spec(num_pct_tar,"html", color=ifelse(is.nan(num_pct_tar),"gray",ifelse(num_pct_tar>90, "green", "red"))),
+         D_achievement = cell_spec(den_pct_tar,"html", color=ifelse(is.nan(den_pct_tar),"gray",ifelse(den_pct_tar>90, "green", "red"))),
+         TB_PREV = cell_spec(TB_PREV_1,"html",
+color=ifelse(is.nan(TB_PREV_1),"gray",ifelse(TB_PREV_1>90, "green", "red")))
+    )%>%
+  arrange(num_pct_tar)
+
+select(table_prev2, snu1,fy18apr_TB_PREV_N, fy18targets_TB_PREV_N, N_achievement,fy18apr_TB_PREV_D, fy18targets_TB_PREV_D, D_achievement)%>%
+  kable(format="html",format.args =list(big.mark=","), align="c", escape = F, col.names =
+        c("SNU1",
+        "Result",
+        "Target",
+        "% of Target",
+        "Result",
+        "Target",
+        "% of Target"))%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),position="left", full_width= F)%>%
+  add_header_above((c(" "=1, "TB_PREV Numerator"=3, "TB_PREV Denominator"=3)))
+  
+```
+
+
+
+####Funding Agency/Partner Level
+
+**Note that funding agency values are <u>not</u> de-duplicated.**
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**TB/HIV Cases**  </span>  
+</div>  
+
+
+```{r echo=FALSE, warning=FALSE}
+
+# PLHIV by agency graph with partner fill
+all_plhiv_agency <- filter(partner, fundingagency != "Dedup")%>%
+  ggplot(mapping = aes(reorder(fundingagency, fy18apr_TX_CURR_N), fy18apr_TX_CURR_N, fill = primepartner)) + 
+  geom_bar(stat = "identity") +
+  scale_y_continuous(name="", labels=comma)+
+  scale_x_discrete(name="")+
+  ggtitle ("PEPFAR-Supported PLHIV by Funding Agency and Partner")+
+  theme(axis.text.x = element_text(hjust=1),
+        legend.background = element_rect(fill="transparent", 
+                                  size=0.5, linetype="solid"))+
+  coord_flip()
+
+# Legend overlays graph; for now legend is hidden
+ggplotly(all_plhiv_agency)%>%
+  layout(showlegend=FALSE)
+
+
+```
+
+***
+
+```{r echo=FALSE, warning=FALSE}
+
+# TB cases recorded in PEPFAR, by agency with partner fill
+pep_tb_agency <- filter(partner, fundingagency != "Dedup")%>%
+  ggplot(mapping = aes(reorder(fundingagency, fy18apr_TB_STAT_D), fy18apr_TB_STAT_D, fill= primepartner)) + 
+  geom_bar(stat = "identity") +
+  scale_y_continuous(name="", labels=comma)+
+  scale_x_discrete(name="")+
+  theme_classic() +
+  ggtitle ("Registered New/Relapse TB cases by Funding Agency and Partner")+
+  theme(axis.text.x = element_text(hjust=1))+
+  coord_flip()
+
+# Legend overlays graph; for now legend is hidden
+ggplotly(pep_tb_agency)%>%
+  layout(showlegend=FALSE)
+
+```
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**HIV Testing and Treatment Cascade** </span>  
+</div> 
+
+Creating this cascade across Agencies for comparison:
+
+```{r echo=FALSE}
+
+# Creating dataset for cascade with labels
+cascade_agency <- filter(longagency, fundingagency != "Dedup")%>%
+  filter(period %in% plist)%>%
+  mutate(label = case_when(
+    grepl("TB_STAT_D", period) ~ "1.",
+    grepl("TB_STAT_N", period) ~ "2.",
+    grepl("TB_STAT_HIVpos", period) ~ "3.",
+    grepl("TB_ART_N", period) ~ "4."
+  ))
+
+# Creating the cascade with agencies side by side
+wrap <-ggplot(data = cascade_agency, mapping = aes(label, value)) + 
+  geom_bar(stat="identity", fill="#B0C4DE") +
+  facet_wrap(~fundingagency, scale="free")+
+  scale_y_continuous(name="", labels=comma)+
+  scale_x_discrete(name= "",labels = function(x) str_wrap(x, width = 5))+
+  theme_classic() +
+  ggtitle ("HIV Testing/Treatment Cascade by Agency")
+  
+ggplotly(wrap)
+
+```
+
+1. New/Relapse TB cases (TB_STAT Denominator)  
+2. TB cases with HIV status (TB_STAT Numerator)  
+3. TB cases with positive HIV status (TB_STAT_POS)  
+4. HIV+ TB cases on ART (TB_ART Numerator)  
+
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**HIV Testing among TB Cases: TB_STAT** </span>  
+</div> 
+
+```{r echo=FALSE, warning=FALSE}
+
+# Definitions of TB_STAT and TB_ART in table form
+gsub("<thead>.*</thead>", "",x_stat )
+
+```
+
+```{r echo=FALSE, warning=FALSE}
+
+# Above / below 90% flag 
+agency$stat_type <- ifelse(agency$fy18_TB_STAT < .90, "Below 90%", "Above 90%")  
+
+# Creating graph of TB_STAT indicator by agency
+tb_stat_agency <- filter(agency, fundingagency != "Dedup")%>%
+  ggplot(mapping = aes(fundingagency, fy18_TB_STAT)) + 
+  geom_bar(stat = "identity", aes(fill=stat_type)) +
+  scale_y_continuous(name=" ", limits=c(0.00,1.00), labels = percent)+
+  scale_x_discrete(name=" ")+
+  theme_bw() +
+  ggtitle ("TB_STAT by Funding Agency")+
+  scale_fill_manual(name="90% Target",
+                    labels = c("Above Target", "Below Target"),
+                    values = c("Above 90%"="#B0C4DE", "Below 90%"="#8B0000"))+
+  theme(axis.text.x = element_text(hjust=1))
+
+ggplotly(tb_stat_agency)%>%
+    layout(legend = list(
+      orientation = "v"))
+
+```
+
+#####Target Achievement 
+
+```{r echo=FALSE, warning=FALSE}
+
+# Prepping data for % target achievement for TB_STAT with color flags
+table3_1 <- filter(agency, fundingagency != "Dedup")%>%
+  select(fundingagency, fy18apr_TB_STAT_N, fy18targets_TB_STAT_N, fy18apr_TB_STAT_D, fy18targets_TB_STAT_D, fy18_TB_STAT)%>%
+  mutate(num_pct_tar = round(fy18apr_TB_STAT_N/fy18targets_TB_STAT_N,digits=2)*100,
+         den_pct_tar = round(fy18apr_TB_STAT_D/fy18targets_TB_STAT_D,digits=2)*100,
+         TB_STAT_1   = fy18_TB_STAT*100,
+         N_achievement = cell_spec(num_pct_tar,"html",  color=ifelse(is.nan(num_pct_tar),"gray",ifelse(num_pct_tar>90, "green", "red"))),
+         D_achievement = cell_spec(den_pct_tar,"html", color=ifelse(is.nan(den_pct_tar),"gray",ifelse(den_pct_tar>90, "green", "red"))),
+         TB_STAT = cell_spec(TB_STAT_1,"html", color=ifelse(is.nan(TB_STAT_1),"gray",ifelse(TB_STAT_1>90, "green", "red")))
+    )%>%  
+  arrange(num_pct_tar) #sorting to put lowest achieving at top
+    
+# Executing table 
+select(table3_1, fundingagency,fy18apr_TB_STAT_N, fy18targets_TB_STAT_N, N_achievement,fy18apr_TB_STAT_D, fy18targets_TB_STAT_D, D_achievement)%>%
+  kable(format="html",format.args =list(big.mark=","), align="c", escape = F, col.names =
+        c("Funding Agency",
+        "Result",
+        "Target",
+        "% of Target",
+        "Result",
+        "Target",
+        "% of Target"))%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),position="left", full_width= F)%>%
+  add_header_above((c(" "=1, "TB_STAT Numerator"=3, "TB_STAT Denominator"=3)))
+
+```
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**HIV Treatment among TB Cases: TB_ART** </span>  
+</div> 
+
+```{r echo=FALSE, warning=FALSE}
+
+# Definitions of TB_ART in table form
+gsub("<thead>.*</thead>", "",x_art )
+
+```
+
+
+```{r echo=FALSE, warning=FALSE}
+
+# above / below 90% flag
+agency$art_type <- ifelse(agency$fy18_TB_ART >  1.0,"Above 100%- check data", 
+                        ifelse(agency$fy18_TB_ART >.9 & agency$fy18_TB_ART<=1.0, "Above 90%", "Below 90%"))  
+
+# Graph of SNU-level TB_ART indicator
+tb_art_agency <- filter(agency, fundingagency != "Dedup")%>%
+  ggplot(mapping = aes(fundingagency, fy18_TB_ART)) + 
+  geom_bar(stat = "identity", aes(fill=art_type)) +
+  scale_y_continuous(name=" ", limits=c(0.00,1.00),oob = rescale_none, labels = percent)+
+  scale_x_discrete(name=" ")+
+  theme_bw() +
+  ggtitle ("TB_ART by Funding Agency")+
+  scale_fill_manual(name="90% Target",
+                    labels = c("Above Target", "Below Target", "Above 100%- check data"),
+                    values = c("Above 90%"="#B0C4DE", "Below 90%"="#8B0000", "Above 100%- check data"="gray"))+
+  theme(axis.text.x = element_text(hjust=1))
+
+ggplotly(tb_art_agency)%>%
+  layout(legend = list(
+      orientation = "v"))
+
+```
+
+#####Target Achievement
+
+```{r echo=FALSE, warning=FALSE}
+
+# Prepping data for TB_ART achievement by agency with color flags
+table_art_agency <- filter(agency,fundingagency != "Dedup")%>%
+  select(fundingagency, fy18_TB_ART, fy18apr_TB_ART_N, fy18targets_TB_ART_N, fy18apr_TB_STAT_HIVpos, fy18apr_TB_STAT_N)%>%
+  mutate(num_pct_tar = round(fy18apr_TB_ART_N/fy18targets_TB_ART_N,digits=2)*100,
+         pct_pos = round(fy18apr_TB_STAT_HIVpos/fy18apr_TB_STAT_N,digits=2)*100,
+         TB_ART_1   = fy18_TB_ART*10,
+         N_achievement = cell_spec(num_pct_tar,"html", color=ifelse(is.nan(num_pct_tar),"gray",ifelse(num_pct_tar>90, "green", "red"))),
+         TB_ART = cell_spec(TB_ART_1,"html", color=ifelse(is.nan(TB_ART_1),"gray",ifelse(TB_ART_1>90, "green", "red")))
+    )%>%
+  arrange(num_pct_tar)
+
+# Executing table for agency level TB_ART
+select(table_art_agency, fundingagency,fy18apr_TB_ART_N, fy18targets_TB_ART_N, N_achievement,fy18apr_TB_STAT_HIVpos, pct_pos)%>%
+  kable(format="html",format.args =list(big.mark=","), align="c", escape = F, col.names =
+        c(
+        "Funding Agency",
+        "Result",
+        "Target",
+        "% of Target",
+        "HIV Positive",
+        "% HIV Positive"))%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),position="left", full_width= F)%>%
+  add_header_above((c(" "=1, "TB_ART Numerator"=3, "Positive HIV Proportion"=2)))
+  
+```
+
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**TB Testing, Treatment, and Prevention Cascade**  </span>
+</div> 
+
+```{r echo=FALSE}
+
+# Prepping data for TB treatment cascade with labels abbreviated and defined below
+cascade3_2 <- filter(longagency, fundingagency!= "Dedup")%>%
+  filter(period %in% plist1_2)%>%
+  mutate(label = case_when(
+  grepl("TB_PREV_N", period) ~ "1.",
+    grepl("TB_PREV_D", period) ~ "2.",
+    grepl("TBneg", period) ~ "3.",
+    grepl("TX_TB_D", period) ~ "4.",
+    grepl("TBpos", period) ~ "5.",
+    grepl("sent", period) ~ "6.",
+    grepl("received", period) ~ "7.",
+    grepl("TX_TB_N", period) ~ "8."
+  ))
+
+# Creating the TB treatment cascade by funding agency
+wrap3_2 <-ggplot(data = cascade3_2, mapping = aes(label, value)) + 
+  geom_bar(stat="identity", fill="#B0C4DE") +
+  facet_wrap(~fundingagency, scale="free")+
+  scale_y_continuous(name=" ", labels=comma)+
+  scale_x_discrete(name= " ")+
+  theme_classic() +
+  ggtitle ("TB Treatment/Prevention Cascade by Funding Agency")
+
+ggplotly(wrap3_2)
+
+```
+1. ART patients who completed TPT (TB_PREV Numerator)
+2. ART patients expected to complete TPT (TB_PREV Denominator)
+3. ART patients screened negative for TB
+4. ART patients screened for TB (TX_TB Denominator)
+5. ART patients screened positive for TB
+6. ART patients with a specimen sent
+7. ART patients with a result received
+8. ART patients started on TB treatment (TX_TB Numerator)
+
+#####TB Treatment side of Cascade
+
+```{r echo=FALSE}
+
+# Prepping data for treatment side of cascade with numbers for labels 
+cascade3_3 <- filter(longagency, fundingagency!= "Dedup")%>%
+  filter(period %in% plist1_3)%>%
+  mutate(label = case_when(
+    grepl("TBpos", period) ~ "5.",
+    grepl("sent", period) ~ "6.",
+    grepl("received", period) ~ "7.",
+    grepl("TX_TB_N", period) ~ "8."
+  ))
+
+# Executing graph for treamtent cascade
+wrap3_3 <-ggplot(data = cascade3_3, mapping = aes(label, value)) + 
+  geom_bar(stat="identity", fill="#B0C4DE") +
+  facet_wrap(~fundingagency, scale="free")+
+  scale_y_continuous(name="", labels=comma)+
+  scale_x_discrete(name= "")+
+  theme_classic() +
+  ggtitle ("TB Treatment Side of Cascade by Funding Agency")
+
+ggplotly(wrap3_3)
+
+```
+5. ART patients screened positive for TB
+6. ART patients with a specimen sent
+7. ART patients with a result received
+8. ART patients started on TB treatment (TX_TB Numerator)
+
+#####TB Prevention side of Cascade
+
+```{r echo=FALSE}
+
+# Prepping data with numbers for labels
+cascade3_4 <- filter(longagency, fundingagency!= "Dedup")%>%
+  filter(period %in% plist1_4)%>%
+  mutate(label = case_when(
+  grepl("TB_PREV_N", period) ~ "1.",
+    grepl("TB_PREV_D", period) ~ "2.",
+    grepl("TBneg", period) ~ "3.",
+    grepl("TX_TB_D", period) ~ "4."
+  ))
+
+# Creating the TB prevention cascade by funding agency 
+wrap3_4 <-ggplot(data = cascade3_4, mapping = aes(label, value)) + 
+  geom_bar(stat="identity", fill="#B0C4DE") +
+  facet_wrap(~fundingagency, scale="free")+
+  scale_y_continuous(name="", labels=comma)+
+  scale_x_discrete(name= "")+
+  theme_classic() +
+  ggtitle ("TB Prevention Side of Cascade by Funding Agency")
+
+ggplotly(wrap3_4)
+
+```
+1. ART patients who completed TPT (TB_PREV Numerator)
+2. ART patients expected to complete TPT (TB_PREV Denominator)
+3. ART patients screened negative for TB
+4. ART patients screened for TB (TX_TB Denominator)
+
+```{r echo=FALSE, warning=FALSE}
+
+#creating table of TPT completions by agency
+table3_3 <- filter(agency, fundingagency!= "Dedup")%>%
+  select(fundingagency, tpt_cum)%>%
+  arrange(-tpt_cum)
+
+kable(table3_3, format="html",format.args =list(big.mark=","), align="c", escape = F, col.names =
+        c("Funding Agency",
+          "TPT Completions"))%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),position="left", full_width= F)
+
+```
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**TB Testing and Treatment among PLHIV: TX_TB**  </span> 
+</div>
+
+```{r echo=FALSE, warning=FALSE}
+#creating reminders for definitions of TX_TB in table form
+gsub("<thead>.*</thead>", "",x1_3 )
+```
+
+```{r echo=FALSE, warning=FALSE}
+
+# Prepping data for TB_TB target achievement with color flags for low performers
+table_tx3 <- filter(agency,fundingagency != "Dedup")%>%
+  select(fundingagency, fy18apr_TX_TB_N, fy18targets_TX_TB_N, fy18apr_TX_TB_D, fy18targets_TX_TB_D)%>%
+  mutate(num_pct_tar = round(fy18apr_TX_TB_N/fy18targets_TX_TB_N,digits=2)*100,
+         den_pct_tar = round(fy18apr_TX_TB_D/fy18targets_TX_TB_D,digits=2)*100)%>%
+  mutate(
+    N_achievement = cell_spec(num_pct_tar,"html", color=ifelse(num_pct_tar>90, "green", "red")),
+    D_achievement = cell_spec(den_pct_tar,"html", color=ifelse(den_pct_tar>90, "green", "red")))%>%
+  arrange(num_pct_tar)
+
+# Creating table of target achievement for TX_TB at funding agency level    
+select(table_tx3,fundingagency, fy18apr_TX_TB_N, fy18targets_TX_TB_N, N_achievement,fy18apr_TX_TB_D, fy18targets_TX_TB_D, D_achievement)%>%
+  kable(format="html",format.args =list(big.mark=","), align="c", escape = F, col.names =
+        c(
+        "Funding Agency",
+        "Result",
+        "Target",
+        "% of Target",
+        "Result",
+        "Target",
+        "% of Target"))%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),position="left", full_width= F)%>%
+  add_header_above((c(" "=1, "TX_TB Numerator"=3, "TX_TB Denominator"=3)))
+
+
+```
+
+
+<style>
+div.blue { background-color:#708090; border-radius: 1px; padding: 1px;}
+</style>
+<div class = "blue">
+####<span style="color:white">**TB Preventive Therapy among PLHIV: TB_PREV**  </span>  
+</div>
+
+```{r echo=FALSE, warning=FALSE}
+
+# Definitions of TB_PREV in table form
+gsub("<thead>.*</thead>", "",x1_4 )
+
+```
+
+```{r echo=FALSE, warning=FALSE}
+
+# above / below 90% flag
+agency$prev_type <- ifelse(agency$fy18_TB_PREV < .90, "Below 90%", "Above 90%")  
+
+#creating graph of TB_PREV indicator by agency
+tb_prev_agency <- filter(agency, fundingagency != "Dedup")%>%
+  ggplot(mapping = aes(fundingagency, fy18_TB_PREV)) + 
+  geom_bar(stat = "identity", aes(fill=prev_type)) +
+  scale_y_continuous(name=" ", limits=c(0.00,1.00), labels = percent)+
+  scale_x_discrete(name=" ")+
+  theme_bw() +
+  ggtitle ("TB_PREV by Funding Agency")+
+  scale_fill_manual(name="90% Target",
+                    labels = c("Above Target", "Below Target"),
+                    values = c("Above 90%"="#B0C4DE", "Below 90%"="#8B0000"))+
+  theme(axis.text.x = element_text(hjust=1))
+
+ggplotly(tb_prev_agency)%>%
+    layout(legend = list(
+      orientation = "v"))
+
+```
+
+#####Target Acheivement by Funding Agency
+
+```{r echo=FALSE, warning=FALSE}
+
+# Prepping data for TB_PREV target achievement w color flags for low performance
+table3_3 <- filter(agency, fundingagency != "Dedup")%>%
+  select(fundingagency, fy18apr_TB_PREV_N, fy18targets_TB_PREV_N, fy18apr_TB_PREV_D, fy18targets_TB_PREV_D, fy18_TB_PREV)%>%
+  mutate(num_pct_tar = round(fy18apr_TB_PREV_N/fy18targets_TB_PREV_N,digits=2)*100,
+         den_pct_tar = round(fy18apr_TB_PREV_D/fy18targets_TB_PREV_D,digits=2)*100,
+         TB_PREV_1   = fy18_TB_PREV*100,
+         N_achievement = cell_spec(num_pct_tar,"html", color=ifelse(is.nan(num_pct_tar),"gray",ifelse(num_pct_tar>90, "green", "red"))),
+         D_achievement = cell_spec(den_pct_tar,"html", color=ifelse(is.nan(den_pct_tar),"gray",ifelse(den_pct_tar>90, "green", "red"))),
+         TB_PREV = cell_spec(TB_PREV_1,"html", color=ifelse(is.nan(TB_PREV_1),"gray", ifelse(TB_PREV_1>90, "green", "red"))))%>%
+  arrange(num_pct_tar)
+
+# Executing table for TB_PREV at funding agency level
+select(table3_3, fundingagency,fy18apr_TB_PREV_N, fy18targets_TB_PREV_N, N_achievement, fy18apr_TB_PREV_D, fy18targets_TB_PREV_D, D_achievement)%>%
+  kable(format="html",format.args =list(big.mark=","), align="c", escape = F, col.names =
+        c("Funding Agency",
+        "Result",
+        "Target",
+        "% of Target",
+        "Result",
+        "Target",
+        "% of Target"))%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),position="left", full_width= F)%>%
+  add_header_above((c(" "=1, "TB_PREV Numerator"=3, "TB_PREV Denominator"=3)))
+```
